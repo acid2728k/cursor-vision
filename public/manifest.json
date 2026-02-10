@@ -1,0 +1,10 @@
+{
+  "name": "Neon Tubes Painter",
+  "short_name": "NeonPaint",
+  "description": "Draw glowing neon tubes with immersive effects",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a1a",
+  "theme_color": "#0a0a1a",
+  "icons": []
+}

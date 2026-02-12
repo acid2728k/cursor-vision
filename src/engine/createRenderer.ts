@@ -104,6 +104,12 @@ export function createRenderer(container: HTMLElement): RenderContext {
   mainContainer.addChild(strokeLayer);
   mainContainer.addChild(fxContainer);
 
+  // Fix bloom clipping: force filter area to cover the full screen so the
+  // glow is never clipped at stroke bounding-box edges.
+  mainContainer.filterArea = new PIXI.Rectangle(
+    0, 0, app.screen.width, app.screen.height,
+  );
+
   // --- displacement sprite ---
   const noiseTexture = generateNoiseTexture(128);
   const displacementSprite = new PIXI.Sprite(noiseTexture);
@@ -169,6 +175,11 @@ export function clearCanvas(ctx: RenderContext): void {
 export function handleResize(ctx: RenderContext): void {
   ctx.displacementSprite.width = ctx.app.screen.width;
   ctx.displacementSprite.height = ctx.app.screen.height;
+
+  // Keep filter area in sync so bloom is never clipped
+  ctx.mainContainer.filterArea = new PIXI.Rectangle(
+    0, 0, ctx.app.screen.width, ctx.app.screen.height,
+  );
 }
 
 /** Destroy the renderer and free resources */

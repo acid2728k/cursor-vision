@@ -32,8 +32,9 @@ export function setupFilters(ctx: RenderContext): FilterContext {
     bloomScale: 1.5,
     brightness: 1.2,
     blur: 8,
-    quality: 4,
+    quality: 8,
   });
+  bloom.padding = 40; // extra padding to prevent glow clipping at edges
 
   const displacement = new PIXI.DisplacementFilter(ctx.displacementSprite, 0);
 

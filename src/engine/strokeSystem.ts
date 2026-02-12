@@ -131,7 +131,7 @@ export function resetStroke(state: StrokeState): void {
 // Catmull-Rom spline smoothing
 // ---------------------------------------------------------------------------
 
-export function smoothPoints(pts: Point[], segments = 3): Point[] {
+export function smoothPoints(pts: Point[], segments = 5): Point[] {
   if (pts.length < 3) return [...pts];
 
   const out: Point[] = [];
@@ -200,8 +200,14 @@ export function interpolateColor(palette: string[], t: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// Draw stroke onto a StrokeGraphics (glow + body)
+// Draw stroke using circle-stamp technique
 // ---------------------------------------------------------------------------
+//
+// Instead of polyline segments (which produce visible seams between colour
+// steps and jagged round-cap artefacts), we stamp overlapping filled circles
+// along the smoothed path.  This is the same approach professional painting
+// apps use (Procreate, Photoshop) and produces a perfectly smooth, render-
+// quality tube with continuous gradient.
 
 export function drawStroke(
   sg: StrokeGraphics,
@@ -217,61 +223,53 @@ export function drawStroke(
   if (points.length < 2) return;
 
   const n = points.length;
-  const colorSteps = Math.min(n - 1, 64);
+  const radius = brushSize / 2;
 
-  // helper: get start/end index for a color step
-  const range = (c: number): [number, number] => {
-    const from = Math.floor((c / colorSteps) * (n - 1));
-    const to = Math.floor(((c + 1) / colorSteps) * (n - 1));
-    return [from, to];
-  };
-
-  // helper: draw a gradient polyline onto a target Graphics
-  const drawGradientLine = (
+  // ---- helper: stamp filled circles along the path ----
+  // `step` lets us skip points for wider layers (they overlap heavily anyway)
+  const stampCircles = (
     gfx: PIXI.Graphics,
-    width: number,
+    r: number,
+    step: number,
   ): void => {
-    for (let c = 0; c < colorSteps; c++) {
-      const t = ((c / Math.max(1, colorSteps - 1) + gradientOffset) % 1 + 1) % 1;
+    for (let i = 0; i < n; i += step) {
+      const t = ((i / Math.max(1, n - 1) + gradientOffset) % 1 + 1) % 1;
       const color = interpolateColor(palette, t);
-      const [from, to] = range(c);
-      if (to <= from) continue;
-
-      gfx.lineStyle({
-        width,
-        color,
-        alpha: 1,
-        cap: PIXI.LINE_CAP.ROUND,
-        join: PIXI.LINE_JOIN.ROUND,
-      });
-      gfx.moveTo(points[from].x, points[from].y);
-      for (let i = from + 1; i <= to; i++) {
-        gfx.lineTo(points[i].x, points[i].y);
-      }
+      gfx.beginFill(color, 1);
+      gfx.drawCircle(points[i].x, points[i].y, r);
+      gfx.endFill();
+    }
+    // Always stamp the very last point for a clean endpoint
+    if ((n - 1) % step !== 0) {
+      const t = ((1 + gradientOffset) % 1 + 1) % 1;
+      const color = interpolateColor(palette, t);
+      gfx.beginFill(color, 1);
+      gfx.drawCircle(points[n - 1].x, points[n - 1].y, r);
+      gfx.endFill();
     }
   };
 
-  // ----- pass 1: soft outer glow (widest, dimmest) -----
+  // ----- layer 1: soft outer glow (widest, dimmest) -----
   const glowMul = (1 - hardness) * 1.6;
   if (glowMul > 0.02) {
-    const softW = brushSize * (1 + glowMul);
+    const glowR = radius * (1 + glowMul);
     sg._glowAlpha.alpha = 0.2 * (1 - hardness);
-    drawGradientLine(sg.glowGfx, softW);
+    // Wide circles overlap massively — can skip every 2nd point
+    stampCircles(sg.glowGfx, glowR, 2);
   } else {
     sg._glowAlpha.alpha = 0;
   }
 
-  // ----- pass 2: soft edge (plastic transition ring) -----
-  // Slightly wider than body, moderate alpha → smooth falloff
+  // ----- layer 2: soft edge (plastic transition ring) -----
   const edgeMul = 0.35 * (1 - hardness * 0.6);
   if (edgeMul > 0.02) {
-    const edgeW = brushSize * (1 + edgeMul);
+    const edgeR = radius * (1 + edgeMul);
     sg._edgeAlpha.alpha = 0.45 * (1 - hardness * 0.4);
-    drawGradientLine(sg.edgeGfx, edgeW);
+    stampCircles(sg.edgeGfx, edgeR, 1);
   } else {
     sg._edgeAlpha.alpha = 0;
   }
 
-  // ----- pass 3: main tube body (solid core) -----
-  drawGradientLine(sg.bodyGfx, brushSize);
+  // ----- layer 3: solid tube body -----
+  stampCircles(sg.bodyGfx, radius, 1);
 }

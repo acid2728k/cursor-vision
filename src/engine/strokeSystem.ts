@@ -216,20 +216,20 @@ export function drawStroke(
     }
   }
 
-  // ----- pass 3: bright core highlight -----
-  const coreW = brushSize * 0.22 * hardness;
-  if (coreW > 0.5) {
+  // ----- pass 3: subtle core highlight (thin, not pure-white) -----
+  const coreW = brushSize * 0.12 * hardness;
+  if (coreW > 0.4) {
     for (let c = 0; c < colorSteps; c++) {
       const t = ((c / Math.max(1, colorSteps - 1) + gradientOffset) % 1 + 1) % 1;
       const base = interpolateColor(palette, t);
-      const coreColor = lightenColor(base, 90);
+      const coreColor = lightenColor(base, 45);
       const [from, to] = range(c);
       if (to <= from) continue;
 
       gfx.lineStyle({
         width: coreW,
         color: coreColor,
-        alpha: 0.65,
+        alpha: 0.3,
         cap: PIXI.LINE_CAP.ROUND,
         join: PIXI.LINE_JOIN.ROUND,
       });

@@ -135,7 +135,7 @@ export default function App() {
       if (stroke.isDrawing && stroke.smoothedPoints.length >= 2) {
         const gradientOffset = timeRef.current * state.gradientSpeed;
         drawStroke(
-          ctx.activeGfx,
+          ctx.activeStroke,
           stroke.smoothedPoints,
           state.palette,
           state.brushSize,

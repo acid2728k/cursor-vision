@@ -15,6 +15,18 @@ export interface StrokeState {
   smoothedPoints: Point[];
 }
 
+/**
+ * Two-layer drawing target: glow (with AlphaFilter for artifact-free
+ * transparency) + body, wrapped in a Container.
+ */
+export interface StrokeGraphics {
+  container: PIXI.Container;
+  glowGfx: PIXI.Graphics;
+  bodyGfx: PIXI.Graphics;
+  /** Internal — uniform alpha applied to the entire glow layer */
+  _glowAlpha: PIXI.AlphaFilter;
+}
+
 // ---------------------------------------------------------------------------
 // State factory
 // ---------------------------------------------------------------------------
@@ -28,6 +40,39 @@ export function createStrokeState(): StrokeState {
     rawPoints: [],
     smoothedPoints: [],
   };
+}
+
+// ---------------------------------------------------------------------------
+// StrokeGraphics factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a two-layer stroke target.  The glow layer has an AlphaFilter so
+ * that segment overlaps are composited at full opacity first, then uniform
+ * alpha is applied — eliminating the visible circle artefacts.
+ */
+export function createStrokeGraphics(
+  blendMode: PIXI.BLEND_MODES = PIXI.BLEND_MODES.NORMAL,
+): StrokeGraphics {
+  const container = new PIXI.Container();
+
+  const glowAlpha = new PIXI.AlphaFilter(1);
+  const glowGfx = new PIXI.Graphics();
+  glowGfx.blendMode = blendMode;
+  glowGfx.filters = [glowAlpha];
+
+  const bodyGfx = new PIXI.Graphics();
+  bodyGfx.blendMode = blendMode;
+
+  container.addChild(glowGfx, bodyGfx);
+
+  return { container, glowGfx, bodyGfx, _glowAlpha: glowAlpha };
+}
+
+/** Clear both layers without destroying. */
+export function clearStrokeGraphics(sg: StrokeGraphics): void {
+  sg.glowGfx.clear();
+  sg.bodyGfx.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -139,20 +184,20 @@ export function interpolateColor(palette: string[], t: number): number {
   return (r << 16) | (g << 8) | b;
 }
 
-
 // ---------------------------------------------------------------------------
-// Draw stroke onto a PIXI.Graphics
+// Draw stroke onto a StrokeGraphics (glow + body)
 // ---------------------------------------------------------------------------
 
 export function drawStroke(
-  gfx: PIXI.Graphics,
+  sg: StrokeGraphics,
   points: Point[],
   palette: string[],
   brushSize: number,
   hardness: number,
   gradientOffset: number = 0,
 ): void {
-  gfx.clear();
+  sg.glowGfx.clear();
+  sg.bodyGfx.clear();
   if (points.length < 2) return;
 
   const n = points.length;
@@ -165,29 +210,36 @@ export function drawStroke(
     return [from, to];
   };
 
-  // ----- pass 1: soft outer glow (wider, transparent) -----
+  // ----- pass 1: soft outer glow -----
+  // Drawn at FULL alpha onto glowGfx. The AlphaFilter on that Graphics
+  // applies uniform transparency afterwards, so overlapping round-cap
+  // circles don't produce visible artifacts.
   const glowMul = (1 - hardness) * 1.6;
   if (glowMul > 0.02) {
     const softW = brushSize * (1 + glowMul);
     const softA = 0.2 * (1 - hardness);
+    sg._glowAlpha.alpha = softA;
+
     for (let c = 0; c < colorSteps; c++) {
       const t = ((c / Math.max(1, colorSteps - 1) + gradientOffset) % 1 + 1) % 1;
       const color = interpolateColor(palette, t);
       const [from, to] = range(c);
       if (to <= from) continue;
 
-      gfx.lineStyle({
+      sg.glowGfx.lineStyle({
         width: softW,
         color,
-        alpha: softA,
+        alpha: 1, // full — AlphaFilter handles transparency
         cap: PIXI.LINE_CAP.ROUND,
         join: PIXI.LINE_JOIN.ROUND,
       });
-      gfx.moveTo(points[from].x, points[from].y);
+      sg.glowGfx.moveTo(points[from].x, points[from].y);
       for (let i = from + 1; i <= to; i++) {
-        gfx.lineTo(points[i].x, points[i].y);
+        sg.glowGfx.lineTo(points[i].x, points[i].y);
       }
     }
+  } else {
+    sg._glowAlpha.alpha = 0;
   }
 
   // ----- pass 2: main tube body -----
@@ -197,18 +249,16 @@ export function drawStroke(
     const [from, to] = range(c);
     if (to <= from) continue;
 
-    gfx.lineStyle({
+    sg.bodyGfx.lineStyle({
       width: brushSize,
       color,
       alpha: 1,
       cap: PIXI.LINE_CAP.ROUND,
       join: PIXI.LINE_JOIN.ROUND,
     });
-    gfx.moveTo(points[from].x, points[from].y);
+    sg.bodyGfx.moveTo(points[from].x, points[from].y);
     for (let i = from + 1; i <= to; i++) {
-      gfx.lineTo(points[i].x, points[i].y);
+      sg.bodyGfx.lineTo(points[i].x, points[i].y);
     }
   }
-
-  // pass 3 (core highlight) removed — glow + tube body are enough
 }

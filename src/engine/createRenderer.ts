@@ -1,5 +1,11 @@
 import * as PIXI from 'pixi.js';
-import { drawStroke, type Point } from './strokeSystem';
+import {
+  createStrokeGraphics,
+  clearStrokeGraphics,
+  drawStroke,
+  type Point,
+  type StrokeGraphics,
+} from './strokeSystem';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -7,8 +13,9 @@ import { drawStroke, type Point } from './strokeSystem';
 
 export interface RenderContext {
   app: PIXI.Application;
-  activeGfx: PIXI.Graphics;
-  /** Container that holds committed stroke Graphics — children persist forever. */
+  /** Two-layer active stroke (glow + body) — redrawn each frame while drawing. */
+  activeStroke: StrokeGraphics;
+  /** Container that holds committed stroke containers — children persist forever. */
   strokeLayer: PIXI.Container;
   /** Top-level container: bloom + chromatic aberration. */
   mainContainer: PIXI.Container;
@@ -89,15 +96,14 @@ export function createRenderer(container: HTMLElement): RenderContext {
   view.style.left = '0';
   container.appendChild(view);
 
-  // --- committed strokes live here as Graphics children (never removed) ---
+  // --- committed strokes live here as Container children (never removed) ---
   const strokeLayer = new PIXI.Container();
 
   // --- live drawing (displacement applied only here) ---
-  const activeGfx = new PIXI.Graphics();
-  activeGfx.blendMode = PIXI.BLEND_MODES.ADD;
+  const activeStroke = createStrokeGraphics(PIXI.BLEND_MODES.ADD);
 
   const fxContainer = new PIXI.Container();
-  fxContainer.addChild(activeGfx);
+  fxContainer.addChild(activeStroke.container);
 
   // --- scene graph ---
   const mainContainer = new PIXI.Container();
@@ -122,7 +128,7 @@ export function createRenderer(container: HTMLElement): RenderContext {
 
   return {
     app,
-    activeGfx,
+    activeStroke,
     strokeLayer,
     mainContainer,
     fxContainer,
@@ -140,9 +146,9 @@ export function hexToNum(hex: string): number {
 }
 
 /**
- * Commit the current stroke: clone it into a permanent Graphics child
- * inside strokeLayer. No render-to-texture — the Graphics stays in the
- * scene graph forever (until Clear is pressed).
+ * Commit the current stroke: create a permanent StrokeGraphics container
+ * inside strokeLayer. The container stays in the scene graph forever
+ * (until Clear is pressed).
  */
 export function commitActiveStroke(
   ctx: RenderContext,
@@ -153,22 +159,22 @@ export function commitActiveStroke(
   gradientOffset: number,
 ): void {
   if (points.length < 2) {
-    ctx.activeGfx.clear();
+    clearStrokeGraphics(ctx.activeStroke);
     return;
   }
 
-  // Create a new Graphics that lives permanently in strokeLayer
-  const committed = new PIXI.Graphics();
+  // Create a new two-layer StrokeGraphics that lives permanently in strokeLayer
+  const committed = createStrokeGraphics();
   drawStroke(committed, points, palette, brushSize, hardness, gradientOffset);
-  ctx.strokeLayer.addChild(committed);
+  ctx.strokeLayer.addChild(committed.container);
 
-  // Clear the live drawing graphics
-  ctx.activeGfx.clear();
+  // Clear the live drawing layers
+  clearStrokeGraphics(ctx.activeStroke);
 }
 
 /** Remove all committed strokes */
 export function clearCanvas(ctx: RenderContext): void {
-  ctx.strokeLayer.removeChildren().forEach((c) => c.destroy());
+  ctx.strokeLayer.removeChildren().forEach((c) => c.destroy({ children: true }));
 }
 
 /** Handle window resize */

@@ -139,12 +139,6 @@ export function interpolateColor(palette: string[], t: number): number {
   return (r << 16) | (g << 8) | b;
 }
 
-function lightenColor(c: number, amount: number): number {
-  const r = Math.min(255, ((c >> 16) & 0xff) + amount);
-  const g = Math.min(255, ((c >> 8) & 0xff) + amount);
-  const b = Math.min(255, (c & 0xff) + amount);
-  return (r << 16) | (g << 8) | b;
-}
 
 // ---------------------------------------------------------------------------
 // Draw stroke onto a PIXI.Graphics
@@ -216,27 +210,5 @@ export function drawStroke(
     }
   }
 
-  // ----- pass 3: subtle core highlight (thin, not pure-white) -----
-  const coreW = brushSize * 0.12 * hardness;
-  if (coreW > 0.4) {
-    for (let c = 0; c < colorSteps; c++) {
-      const t = ((c / Math.max(1, colorSteps - 1) + gradientOffset) % 1 + 1) % 1;
-      const base = interpolateColor(palette, t);
-      const coreColor = lightenColor(base, 45);
-      const [from, to] = range(c);
-      if (to <= from) continue;
-
-      gfx.lineStyle({
-        width: coreW,
-        color: coreColor,
-        alpha: 0.3,
-        cap: PIXI.LINE_CAP.ROUND,
-        join: PIXI.LINE_JOIN.ROUND,
-      });
-      gfx.moveTo(points[from].x, points[from].y);
-      for (let i = from + 1; i <= to; i++) {
-        gfx.lineTo(points[i].x, points[i].y);
-      }
-    }
-  }
+  // pass 3 (core highlight) removed — glow + tube body are enough
 }

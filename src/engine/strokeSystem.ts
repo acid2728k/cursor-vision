@@ -16,15 +16,20 @@ export interface StrokeState {
 }
 
 /**
- * Two-layer drawing target: glow (with AlphaFilter for artifact-free
- * transparency) + body, wrapped in a Container.
+ * Three-layer drawing target wrapped in a Container:
+ *   1. glowGfx  — wide, very transparent outer glow
+ *   2. edgeGfx  — intermediate soft-edge ring (plastic look)
+ *   3. bodyGfx  — solid core tube
+ * Each semi-transparent layer gets its own AlphaFilter so overlapping
+ * round-cap segments are composited at full opacity first.
  */
 export interface StrokeGraphics {
   container: PIXI.Container;
   glowGfx: PIXI.Graphics;
+  edgeGfx: PIXI.Graphics;
   bodyGfx: PIXI.Graphics;
-  /** Internal — uniform alpha applied to the entire glow layer */
   _glowAlpha: PIXI.AlphaFilter;
+  _edgeAlpha: PIXI.AlphaFilter;
 }
 
 // ---------------------------------------------------------------------------
@@ -47,9 +52,9 @@ export function createStrokeState(): StrokeState {
 // ---------------------------------------------------------------------------
 
 /**
- * Create a two-layer stroke target.  The glow layer has an AlphaFilter so
- * that segment overlaps are composited at full opacity first, then uniform
- * alpha is applied — eliminating the visible circle artefacts.
+ * Create a three-layer stroke target.  Glow and edge layers each get an
+ * AlphaFilter so segment overlaps are resolved at full opacity before
+ * uniform transparency is applied.
  */
 export function createStrokeGraphics(
   blendMode: PIXI.BLEND_MODES = PIXI.BLEND_MODES.NORMAL,
@@ -61,17 +66,27 @@ export function createStrokeGraphics(
   glowGfx.blendMode = blendMode;
   glowGfx.filters = [glowAlpha];
 
+  const edgeAlpha = new PIXI.AlphaFilter(1);
+  const edgeGfx = new PIXI.Graphics();
+  edgeGfx.blendMode = blendMode;
+  edgeGfx.filters = [edgeAlpha];
+
   const bodyGfx = new PIXI.Graphics();
   bodyGfx.blendMode = blendMode;
 
-  container.addChild(glowGfx, bodyGfx);
+  // Order: glow (widest, dimmest) → edge → body (narrowest, solid)
+  container.addChild(glowGfx, edgeGfx, bodyGfx);
 
-  return { container, glowGfx, bodyGfx, _glowAlpha: glowAlpha };
+  return {
+    container, glowGfx, edgeGfx, bodyGfx,
+    _glowAlpha: glowAlpha, _edgeAlpha: edgeAlpha,
+  };
 }
 
-/** Clear both layers without destroying. */
+/** Clear all layers without destroying. */
 export function clearStrokeGraphics(sg: StrokeGraphics): void {
   sg.glowGfx.clear();
+  sg.edgeGfx.clear();
   sg.bodyGfx.clear();
 }
 
@@ -197,6 +212,7 @@ export function drawStroke(
   gradientOffset: number = 0,
 ): void {
   sg.glowGfx.clear();
+  sg.edgeGfx.clear();
   sg.bodyGfx.clear();
   if (points.length < 2) return;
 
@@ -210,55 +226,52 @@ export function drawStroke(
     return [from, to];
   };
 
-  // ----- pass 1: soft outer glow -----
-  // Drawn at FULL alpha onto glowGfx. The AlphaFilter on that Graphics
-  // applies uniform transparency afterwards, so overlapping round-cap
-  // circles don't produce visible artifacts.
-  const glowMul = (1 - hardness) * 1.6;
-  if (glowMul > 0.02) {
-    const softW = brushSize * (1 + glowMul);
-    const softA = 0.2 * (1 - hardness);
-    sg._glowAlpha.alpha = softA;
-
+  // helper: draw a gradient polyline onto a target Graphics
+  const drawGradientLine = (
+    gfx: PIXI.Graphics,
+    width: number,
+  ): void => {
     for (let c = 0; c < colorSteps; c++) {
       const t = ((c / Math.max(1, colorSteps - 1) + gradientOffset) % 1 + 1) % 1;
       const color = interpolateColor(palette, t);
       const [from, to] = range(c);
       if (to <= from) continue;
 
-      sg.glowGfx.lineStyle({
-        width: softW,
+      gfx.lineStyle({
+        width,
         color,
-        alpha: 1, // full — AlphaFilter handles transparency
+        alpha: 1,
         cap: PIXI.LINE_CAP.ROUND,
         join: PIXI.LINE_JOIN.ROUND,
       });
-      sg.glowGfx.moveTo(points[from].x, points[from].y);
+      gfx.moveTo(points[from].x, points[from].y);
       for (let i = from + 1; i <= to; i++) {
-        sg.glowGfx.lineTo(points[i].x, points[i].y);
+        gfx.lineTo(points[i].x, points[i].y);
       }
     }
+  };
+
+  // ----- pass 1: soft outer glow (widest, dimmest) -----
+  const glowMul = (1 - hardness) * 1.6;
+  if (glowMul > 0.02) {
+    const softW = brushSize * (1 + glowMul);
+    sg._glowAlpha.alpha = 0.2 * (1 - hardness);
+    drawGradientLine(sg.glowGfx, softW);
   } else {
     sg._glowAlpha.alpha = 0;
   }
 
-  // ----- pass 2: main tube body -----
-  for (let c = 0; c < colorSteps; c++) {
-    const t = ((c / Math.max(1, colorSteps - 1) + gradientOffset) % 1 + 1) % 1;
-    const color = interpolateColor(palette, t);
-    const [from, to] = range(c);
-    if (to <= from) continue;
-
-    sg.bodyGfx.lineStyle({
-      width: brushSize,
-      color,
-      alpha: 1,
-      cap: PIXI.LINE_CAP.ROUND,
-      join: PIXI.LINE_JOIN.ROUND,
-    });
-    sg.bodyGfx.moveTo(points[from].x, points[from].y);
-    for (let i = from + 1; i <= to; i++) {
-      sg.bodyGfx.lineTo(points[i].x, points[i].y);
-    }
+  // ----- pass 2: soft edge (plastic transition ring) -----
+  // Slightly wider than body, moderate alpha → smooth falloff
+  const edgeMul = 0.35 * (1 - hardness * 0.6);
+  if (edgeMul > 0.02) {
+    const edgeW = brushSize * (1 + edgeMul);
+    sg._edgeAlpha.alpha = 0.45 * (1 - hardness * 0.4);
+    drawGradientLine(sg.edgeGfx, edgeW);
+  } else {
+    sg._edgeAlpha.alpha = 0;
   }
+
+  // ----- pass 3: main tube body (solid core) -----
+  drawGradientLine(sg.bodyGfx, brushSize);
 }

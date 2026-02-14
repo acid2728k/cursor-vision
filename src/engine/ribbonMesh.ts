@@ -111,7 +111,7 @@ function drawGradient(canvas: HTMLCanvasElement, palette: string[]): void {
 }
 
 // ---------------------------------------------------------------------------
-// Geometry builder — triangle strip + semicircle caps
+// Geometry builder — triangle strip + hemisphere taper caps
 // ---------------------------------------------------------------------------
 
 interface GeoData {
@@ -128,13 +128,92 @@ const EMPTY_GEO: GeoData = {
   indices: new Uint16Array([0, 1, 2]),
 };
 
+/**
+ * Helper: add hemisphere taper rings to close one end of the ribbon.
+ * Instead of a flat fan, we extrude concentric rings that follow a
+ * hemisphere profile (cos/sin) — each ring is a narrow strip pair
+ * that smoothly tapers from full width → 0, creating a dome.
+ *
+ * @param dir  +1 = extend forward (end cap), -1 = extend backward (start cap)
+ */
+function addTaperCap(
+  origin: Point,
+  tangent: { tx: number; ty: number; angle: number },
+  halfW: number,
+  capU: number, // u value for all cap vertices (0 or 1)
+  dir: number,  // +1 end, -1 start
+  taperSteps: number,
+  prevLeft: number,
+  prevRight: number,
+  pos: number[],
+  uvArr: number[],
+  ta: number[],
+  idx: number[],
+  viStart: number,
+): number {
+  let vi = viStart;
+  const nx = -tangent.ty;
+  const ny = tangent.tx;
+
+  let pL = prevLeft;
+  let pR = prevRight;
+
+  for (let k = 1; k <= taperSteps; k++) {
+    const frac = k / taperSteps;
+    const ang = frac * Math.PI / 2; // 0 → π/2
+    const ringW = halfW * Math.cos(ang);    // full → 0
+    const axial = halfW * Math.sin(ang);    // 0 → halfW
+
+    const cx = origin.x + tangent.tx * axial * dir;
+    const cy = origin.y + tangent.ty * axial * dir;
+
+    if (k < taperSteps) {
+      // Two vertices: left (v=0) and right (v=1)
+      const lx = cx + nx * ringW;
+      const ly = cy + ny * ringW;
+      const rx = cx - nx * ringW;
+      const ry = cy - ny * ringW;
+
+      const curL = vi;
+      pos.push(lx, ly);
+      uvArr.push(capU, 0);
+      ta.push(tangent.angle);
+      vi++;
+
+      const curR = vi;
+      pos.push(rx, ry);
+      uvArr.push(capU, 1);
+      ta.push(tangent.angle);
+      vi++;
+
+      // Connect to previous ring pair
+      idx.push(pL, pR, curL);
+      idx.push(pR, curR, curL);
+      pL = curL;
+      pR = curR;
+    } else {
+      // Final pole vertex (v=0.5, center)
+      const pole = vi;
+      pos.push(cx, cy);
+      uvArr.push(capU, 0.5);
+      ta.push(tangent.angle);
+      vi++;
+
+      // Two triangles closing to the pole
+      idx.push(pL, pR, pole);
+    }
+  }
+  return vi;
+}
+
 function buildRibbonGeometry(
   points: Point[],
   halfWidth: number,
-  capSegments = 24,
 ): GeoData {
   const n = points.length;
   if (n < 2) return EMPTY_GEO;
+
+  const TAPER_STEPS = 14;
 
   // Accumulated distances for UV.u
   const dists: number[] = [0];
@@ -171,19 +250,17 @@ function buildRibbonGeometry(
   const ta: number[] = [];
   const idx: number[] = [];
 
-  // ---- Main ribbon strip (built first so caps can reference its vertices) ----
+  // ---- Main ribbon strip ----
   const stripBase = 0;
   for (let i = 0; i < n; i++) {
     const nx = -tang[i].ty;
     const ny = tang[i].tx;
     const u = dists[i] / totalLen;
 
-    // Left vertex v=0
     pos.push(points[i].x + nx * halfWidth, points[i].y + ny * halfWidth);
     uv.push(u, 0);
     ta.push(tang[i].angle);
 
-    // Right vertex v=1
     pos.push(points[i].x - nx * halfWidth, points[i].y - ny * halfWidth);
     uv.push(u, 1);
     ta.push(tang[i].angle);
@@ -197,79 +274,25 @@ function buildRibbonGeometry(
   }
   let vi = n * 2;
 
-  // Strip edge vertex indices for cap stitching
-  const firstLeft = stripBase;                     // v=0
-  const firstRight = stripBase + 1;                // v=1
-  const lastLeft = stripBase + (n - 1) * 2;        // v=0
-  const lastRight = stripBase + (n - 1) * 2 + 1;   // v=1
+  // ---- Start cap (hemisphere taper, extends backward) ----
+  const firstLeft = stripBase;
+  const firstRight = stripBase + 1;
+  vi = addTaperCap(
+    points[0], tang[0], halfWidth,
+    0, -1, TAPER_STEPS,
+    firstLeft, firstRight,
+    pos, uv, ta, idx, vi,
+  );
 
-  // ---- Start cap (semicircle fan stitched to strip) ----
-  // Arc goes from left edge (v=0) → back → right edge (v=1).
-  // First and last arc vertices REUSE strip vertices for zero-gap seam.
-  // Alpha is always 1.0 now — 3D lighting handles edge darkening.
-  const capCenter0 = vi;
-  pos.push(points[0].x, points[0].y);
-  uv.push(0, 0.5);
-  ta.push(tang[0].angle);
-  vi++;
-
-  // Interior arc vertices (s=1..capSegments-1) with proper v mapping
-  const startArcBase = vi;
-  const startArcCount = capSegments - 1;
-  for (let s = 1; s < capSegments; s++) {
-    const frac = s / capSegments;
-    const a = tang[0].angle + Math.PI / 2 + Math.PI * frac;
-    pos.push(
-      points[0].x + Math.cos(a) * halfWidth,
-      points[0].y + Math.sin(a) * halfWidth,
-    );
-    // v goes from 0 (left) through 0.5 (back) to 1 (right) for proper 3D shading
-    uv.push(0, 1 - frac);
-    ta.push(tang[0].angle);
-    vi++;
-  }
-  // Fan triangles: firstLeft → interior arcs → firstRight
-  if (startArcCount > 0) {
-    idx.push(capCenter0, firstLeft, startArcBase);
-    for (let s = 0; s < startArcCount - 1; s++) {
-      idx.push(capCenter0, startArcBase + s, startArcBase + s + 1);
-    }
-    idx.push(capCenter0, startArcBase + startArcCount - 1, firstRight);
-  } else {
-    idx.push(capCenter0, firstLeft, firstRight);
-  }
-
-  // ---- End cap (semicircle fan stitched to strip) ----
-  const capCenterN = vi;
-  pos.push(points[n - 1].x, points[n - 1].y);
-  uv.push(1, 0.5);
-  ta.push(tang[n - 1].angle);
-  vi++;
-
-  // Interior arc vertices
-  const endArcBase = vi;
-  const endArcCount = capSegments - 1;
-  for (let s = 1; s < capSegments; s++) {
-    const frac = s / capSegments;
-    const a = tang[n - 1].angle - Math.PI / 2 + Math.PI * frac;
-    pos.push(
-      points[n - 1].x + Math.cos(a) * halfWidth,
-      points[n - 1].y + Math.sin(a) * halfWidth,
-    );
-    uv.push(1, frac);
-    ta.push(tang[n - 1].angle);
-    vi++;
-  }
-  // Fan triangles: lastRight → interior arcs → lastLeft
-  if (endArcCount > 0) {
-    idx.push(capCenterN, lastRight, endArcBase);
-    for (let s = 0; s < endArcCount - 1; s++) {
-      idx.push(capCenterN, endArcBase + s, endArcBase + s + 1);
-    }
-    idx.push(capCenterN, endArcBase + endArcCount - 1, lastLeft);
-  } else {
-    idx.push(capCenterN, lastRight, lastLeft);
-  }
+  // ---- End cap (hemisphere taper, extends forward) ----
+  const lastLeft = stripBase + (n - 1) * 2;
+  const lastRight = stripBase + (n - 1) * 2 + 1;
+  vi = addTaperCap(
+    points[n - 1], tang[n - 1], halfWidth,
+    1, +1, TAPER_STEPS,
+    lastLeft, lastRight,
+    pos, uv, ta, idx, vi,
+  );
 
   return {
     positions: new Float32Array(pos),

@@ -3,7 +3,13 @@ import { presets } from '../presets';
 
 export default function PresetSelect() {
   const activePresetIndex = useStore((s) => s.activePresetIndex);
+  const renderMode = useStore((s) => s.renderMode);
   const applyPreset = useStore((s) => s.applyPreset);
+
+  // Only show presets that match the current render mode
+  const filtered = presets
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => p.renderMode === renderMode);
 
   return (
     <div>
@@ -21,7 +27,7 @@ export default function PresetSelect() {
         {activePresetIndex === -1 && (
           <option value={-1}>— Custom —</option>
         )}
-        {presets.map((p, i) => (
+        {filtered.map(({ p, i }) => (
           <option key={i} value={i}>
             {p.name}
           </option>

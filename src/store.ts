@@ -26,7 +26,15 @@ export const useStore = create<PainterState>((set) => ({
     set({ ...presetToState(p), activePresetIndex: index });
   },
 
-  setRenderMode: (mode: RenderMode) => set({ renderMode: mode, activePresetIndex: -1 }),
+  setRenderMode: (mode: RenderMode) => {
+    // Apply the first preset of the target mode automatically
+    const idx = presets.findIndex((p) => p.renderMode === mode);
+    if (idx >= 0) {
+      set({ ...presetToState(presets[idx]), activePresetIndex: idx });
+    } else {
+      set({ renderMode: mode, activePresetIndex: -1 });
+    }
+  },
 
   toggleUI: () => set((s) => ({ uiVisible: !s.uiVisible })),
 

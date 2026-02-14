@@ -224,25 +224,43 @@ function buildRibbonGeometry(
   }
   const totalLen = dists[n - 1] || 1;
 
-  // Tangent + normal per point
+  // Per-segment direction and normal (for miter calculation)
+  const segDir: { dx: number; dy: number; nx: number; ny: number }[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    let dx = points[i + 1].x - points[i].x;
+    let dy = points[i + 1].y - points[i].y;
+    const l = Math.sqrt(dx * dx + dy * dy) || 1;
+    dx /= l;
+    dy /= l;
+    segDir.push({ dx, dy, nx: -dy, ny: dx });
+  }
+
+  // Tangent per point (averaged) — used for shader lighting angle
   const tang: { tx: number; ty: number; angle: number }[] = [];
   for (let i = 0; i < n; i++) {
     let tx: number;
     let ty: number;
     if (i === 0) {
-      tx = points[1].x - points[0].x;
-      ty = points[1].y - points[0].y;
+      tx = segDir[0].dx;
+      ty = segDir[0].dy;
     } else if (i === n - 1) {
-      tx = points[n - 1].x - points[n - 2].x;
-      ty = points[n - 1].y - points[n - 2].y;
+      tx = segDir[n - 2].dx;
+      ty = segDir[n - 2].dy;
     } else {
-      tx = points[i + 1].x - points[i - 1].x;
-      ty = points[i + 1].y - points[i - 1].y;
+      tx = segDir[i - 1].dx + segDir[i].dx;
+      ty = segDir[i - 1].dy + segDir[i].dy;
+      const l = Math.sqrt(tx * tx + ty * ty) || 1;
+      tx /= l;
+      ty /= l;
     }
-    const l = Math.sqrt(tx * tx + ty * ty) || 1;
-    tx /= l;
-    ty /= l;
     tang.push({ tx, ty, angle: Math.atan2(ty, tx) });
+  }
+
+  // Unwrap tangent angles so consecutive values don't jump by ~2π.
+  // This prevents the shader's light-rotation interpolation from glitching.
+  for (let i = 1; i < n; i++) {
+    while (tang[i].angle - tang[i - 1].angle > Math.PI) tang[i].angle -= 2 * Math.PI;
+    while (tang[i].angle - tang[i - 1].angle < -Math.PI) tang[i].angle += 2 * Math.PI;
   }
 
   const pos: number[] = [];
@@ -250,18 +268,60 @@ function buildRibbonGeometry(
   const ta: number[] = [];
   const idx: number[] = [];
 
-  // ---- Main ribbon strip ----
+  const MITER_LIMIT = 2.0; // max miter scale before clamping
+
+  // ---- Main ribbon strip with miter joins ----
   const stripBase = 0;
   for (let i = 0; i < n; i++) {
-    const nx = -tang[i].ty;
-    const ny = tang[i].tx;
     const u = dists[i] / totalLen;
 
-    pos.push(points[i].x + nx * halfWidth, points[i].y + ny * halfWidth);
+    let offx: number;
+    let offy: number;
+
+    if (i === 0) {
+      // First point: perpendicular to first segment
+      offx = segDir[0].nx * halfWidth;
+      offy = segDir[0].ny * halfWidth;
+    } else if (i === n - 1) {
+      // Last point: perpendicular to last segment
+      offx = segDir[n - 2].nx * halfWidth;
+      offy = segDir[n - 2].ny * halfWidth;
+    } else {
+      // Interior point: proper miter join
+      const n1x = segDir[i - 1].nx;
+      const n1y = segDir[i - 1].ny;
+      const n2x = segDir[i].nx;
+      const n2y = segDir[i].ny;
+
+      // Miter direction = bisector of the two segment normals
+      let mx = n1x + n2x;
+      let my = n1y + n2y;
+      const ml = Math.sqrt(mx * mx + my * my);
+
+      if (ml < 1e-6) {
+        // ~180° turn — normals cancel; just use first segment normal
+        offx = n1x * halfWidth;
+        offy = n1y * halfWidth;
+      } else {
+        mx /= ml;
+        my /= ml;
+
+        // Miter length = halfWidth / cos(halfAngle)
+        const dot = mx * n1x + my * n1y;
+        const scale = Math.min(1 / Math.max(dot, 0.01), MITER_LIMIT);
+
+        offx = mx * halfWidth * scale;
+        offy = my * halfWidth * scale;
+      }
+    }
+
+    // Left vertex v=0
+    pos.push(points[i].x + offx, points[i].y + offy);
     uv.push(u, 0);
     ta.push(tang[i].angle);
 
-    pos.push(points[i].x - nx * halfWidth, points[i].y - ny * halfWidth);
+    // Right vertex v=1
+    pos.push(points[i].x - offx, points[i].y - offy);
     uv.push(u, 1);
     ta.push(tang[i].angle);
 

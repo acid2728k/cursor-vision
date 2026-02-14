@@ -18,8 +18,14 @@ import {
   endStroke,
   resetStroke,
   drawStroke,
+  clearStrokeGraphics,
   type StrokeState,
 } from './engine/strokeSystem';
+
+import {
+  updateRibbonStroke,
+  clearRibbonStroke,
+} from './engine/ribbonMesh';
 
 import {
   setupFilters,
@@ -99,14 +105,17 @@ export default function App() {
       if (!stroke.isDrawing) return;
       const state = useStore.getState();
       const gradientOffset = timeRef.current * state.gradientSpeed;
+
       commitActiveStroke(
         ctx,
+        state.renderMode,
         stroke.smoothedPoints,
         state.palette,
         state.brushSize,
         state.hardness,
         gradientOffset,
       );
+
       endStroke(stroke);
       resetStroke(stroke);
     };
@@ -131,17 +140,32 @@ export default function App() {
         lastSizeRef.current = { w: sw, h: sh };
       }
 
-      // Redraw active stroke each frame (for animated gradient)
+      // Redraw active stroke each frame (animated gradient)
       if (stroke.isDrawing && stroke.smoothedPoints.length >= 2) {
         const gradientOffset = timeRef.current * state.gradientSpeed;
-        drawStroke(
-          ctx.activeStroke,
-          stroke.smoothedPoints,
-          state.palette,
-          state.brushSize,
-          state.hardness,
-          gradientOffset,
-        );
+
+        if (state.renderMode === 'ribbon3d') {
+          // Hide neon, show ribbon
+          clearStrokeGraphics(ctx.activeStroke);
+          updateRibbonStroke(
+            ctx.activeRibbon,
+            stroke.smoothedPoints,
+            state.palette,
+            state.brushSize,
+            gradientOffset,
+          );
+        } else {
+          // Hide ribbon, show neon
+          clearRibbonStroke(ctx.activeRibbon);
+          drawStroke(
+            ctx.activeStroke,
+            stroke.smoothedPoints,
+            state.palette,
+            state.brushSize,
+            state.hardness,
+            gradientOffset,
+          );
+        }
       }
 
       // Animate displacement

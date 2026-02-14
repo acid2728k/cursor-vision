@@ -1,5 +1,8 @@
+export type RenderMode = 'neon' | 'ribbon3d';
+
 export interface Preset {
   name: string;
+  renderMode: RenderMode;
   palette: string[];
   brushSize: number;
   hardness: number;
@@ -19,6 +22,7 @@ export const presets: Preset[] = [
   // 1 — Flowing aurora borealis: medium brush, rich 6-color gradient, gentle glow
   {
     name: 'Aurora Ribbon',
+    renderMode: 'neon',
     palette: ['#00FFD5', '#7C4DFF', '#FF3D9A', '#00E5FF', '#FFAB40', '#76FF03'],
     brushSize: 28,
     hardness: 0.45,
@@ -37,6 +41,7 @@ export const presets: Preset[] = [
   // 2 — Aggressive hot plasma: punchy reds/yellows, extreme bloom, strong distortion
   {
     name: 'Plasma Core',
+    renderMode: 'neon',
     palette: ['#FF1744', '#FFEA00', '#FF6D00', '#00E5FF', '#FF4081', '#FFFFFF'],
     brushSize: 36,
     hardness: 0.7,
@@ -55,6 +60,7 @@ export const presets: Preset[] = [
   // 3 — Heavy liquid distortion: organic, melting colors, big noise
   {
     name: 'Liquid Neon',
+    renderMode: 'neon',
     palette: ['#00FF8A', '#00B0FF', '#FF00E5', '#FFFF00', '#00FFEA', '#D500F9'],
     brushSize: 32,
     hardness: 0.3,
@@ -73,6 +79,7 @@ export const presets: Preset[] = [
   // 4 — Ethereal smoke: huge soft brush, heavy chroma aberration, almost no glow
   {
     name: 'Chromatic Smoke',
+    renderMode: 'neon',
     palette: ['#B2FF59', '#18FFFF', '#FF4081', '#E040FB', '#69F0AE', '#FFAB40'],
     brushSize: 70,
     hardness: 0.1,
@@ -91,6 +98,7 @@ export const presets: Preset[] = [
   // 5 — Laser-sharp thin lines: high hardness, fast gradient, warm palette
   {
     name: 'Electric Sunset',
+    renderMode: 'neon',
     palette: ['#FF6B00', '#FF00A8', '#5A00FF', '#FFD600', '#F50057', '#AA00FF'],
     brushSize: 8,
     hardness: 0.92,
@@ -109,6 +117,7 @@ export const presets: Preset[] = [
   // 6 — Deep ocean: cold monochrome blues/teals, massive glow halo, very slow
   {
     name: 'Deep Sea Biolume',
+    renderMode: 'neon',
     palette: ['#00E5FF', '#00FFB0', '#0047FF', '#1DE9B6', '#00B8D4', '#80D8FF'],
     brushSize: 24,
     hardness: 0.4,
@@ -127,6 +136,7 @@ export const presets: Preset[] = [
   // 7 — Hologram wireframe: ultra-thin, razor-sharp, zero distortion, cool palette
   {
     name: 'Hologram Wire',
+    renderMode: 'neon',
     palette: ['#00FFEA', '#FFFFFF', '#7CFF00', '#40C4FF', '#B2FF59', '#E0E0E0'],
     brushSize: 6,
     hardness: 0.95,
@@ -145,6 +155,7 @@ export const presets: Preset[] = [
   // 8 — Hyperdrive speed lines: extreme bloom explosion, high energy
   {
     name: 'Hyperdrive Trails',
+    renderMode: 'neon',
     palette: ['#FFD600', '#00E5FF', '#FF1744', '#76FF03', '#E040FB', '#FFFFFF'],
     brushSize: 18,
     hardness: 0.65,
@@ -163,6 +174,7 @@ export const presets: Preset[] = [
   // 9 — Ink in water: extremely soft, huge brush, heavy organic distortion
   {
     name: 'Ink in Water',
+    renderMode: 'neon',
     palette: ['#7C4DFF', '#00E5FF', '#00FF8A', '#EA80FC', '#84FFFF', '#B388FF'],
     brushSize: 80,
     hardness: 0.08,
@@ -181,6 +193,7 @@ export const presets: Preset[] = [
   // 10 — Dark moody pulse: purples/pinks, moderate brush, pulsing gradient animation
   {
     name: 'Obsidian Pulse',
+    renderMode: 'neon',
     palette: ['#9C27B0', '#00BCD4', '#E91E63', '#311B92', '#F06292', '#4DD0E1'],
     brushSize: 26,
     hardness: 0.55,
@@ -194,5 +207,45 @@ export const presets: Preset[] = [
     gradientSpeed: 0.45,
     chromaAberration: 0.25,
     background: '#08030e',
+  },
+
+  // ---------- 3D Ribbon presets ----------
+
+  // 11 — Warm sunset 3D ribbon: glossy tube with warm oranges/pinks
+  {
+    name: 'Sunset Tube',
+    renderMode: 'ribbon3d',
+    palette: ['#FFD54F', '#FF8A65', '#EF5350', '#F06292', '#FFB74D', '#FFCC80'],
+    brushSize: 40,
+    hardness: 0.5,
+    glow: 0.3,
+    blurRadius: 3,
+    bloomThreshold: 0.7,
+    bloomStrength: 0.2,
+    trail: 0.9,
+    distortion: 0.0,
+    noiseScale: 0.3,
+    gradientSpeed: 0.15,
+    chromaAberration: 0.0,
+    background: '#0c0a18',
+  },
+
+  // 12 — Cool candy 3D ribbon: pastel plastic look
+  {
+    name: 'Candy Ribbon',
+    renderMode: 'ribbon3d',
+    palette: ['#80DEEA', '#CE93D8', '#F48FB1', '#A5D6A7', '#FFF59D', '#90CAF9'],
+    brushSize: 48,
+    hardness: 0.4,
+    glow: 0.2,
+    blurRadius: 2,
+    bloomThreshold: 0.8,
+    bloomStrength: 0.15,
+    trail: 0.92,
+    distortion: 0.0,
+    noiseScale: 0.2,
+    gradientSpeed: 0.1,
+    chromaAberration: 0.0,
+    background: '#0a0a1a',
   },
 ];

@@ -13,6 +13,7 @@ export interface FilterContext {
 }
 
 export interface FilterParams {
+  renderMode: 'neon' | 'ribbon3d';
   glow: number;
   blurRadius: number;
   bloomThreshold: number;
@@ -54,19 +55,26 @@ export function setupFilters(ctx: RenderContext): FilterContext {
 // ---------------------------------------------------------------------------
 
 export function updateFilters(fc: FilterContext, params: FilterParams): void {
+  const isRibbon = params.renderMode === 'ribbon3d';
+
+  // For ribbon3d: minimal/no post-processing to keep the clean 3D look
+  const bloomMul = isRibbon ? 0.15 : 1;
+  const chromaMul = isRibbon ? 0 : 1;
+  const distMul = isRibbon ? 0.1 : 1;
+
   // Bloom / glow
-  fc.bloom.threshold = params.bloomThreshold;
-  fc.bloom.bloomScale = params.bloomStrength;
-  fc.bloom.blur = Math.max(1, params.blurRadius);
-  fc.bloom.brightness = 1 + params.glow * 0.25;
+  fc.bloom.threshold = isRibbon ? 0.85 : params.bloomThreshold;
+  fc.bloom.bloomScale = params.bloomStrength * bloomMul;
+  fc.bloom.blur = Math.max(1, params.blurRadius * bloomMul);
+  fc.bloom.brightness = 1 + params.glow * 0.25 * bloomMul;
 
   // Displacement intensity (scaled up for visible effect)
-  const scale = params.distortion * 30;
+  const scale = params.distortion * 30 * distMul;
   fc.displacement.scale.x = scale;
   fc.displacement.scale.y = scale;
 
   // Chromatic aberration
-  const ca = params.chromaAberration * 6;
+  const ca = params.chromaAberration * 6 * chromaMul;
   (fc.rgbSplit as any).red = [ca, 0];
   (fc.rgbSplit as any).green = [0, ca];
   (fc.rgbSplit as any).blue = [-ca, 0];

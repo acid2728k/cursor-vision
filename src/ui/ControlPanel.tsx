@@ -116,6 +116,25 @@ export default function ControlPanel({ onClear }: ControlPanelProps) {
         {/* Preset selector */}
         <PresetSelect />
 
+        {/* Render mode toggle */}
+        <Section title="Render Mode">
+          <div className="flex gap-1.5">
+            {(['neon', 'ribbon3d'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => s.setRenderMode(mode)}
+                className={`flex-1 px-2 py-1.5 text-[11px] rounded border transition-colors select-none ${
+                  s.renderMode === mode
+                    ? 'bg-cyan-500/20 border-cyan-400/40 text-cyan-300'
+                    : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'
+                }`}
+              >
+                {mode === 'neon' ? 'Neon' : '3D Ribbon'}
+              </button>
+            ))}
+          </div>
+        </Section>
+
         {/* Palette */}
         <Section title="Palette">
           <div className="flex gap-2">

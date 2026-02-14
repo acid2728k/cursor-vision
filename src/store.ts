@@ -1,11 +1,12 @@
 import { create } from 'zustand';
-import { presets, type Preset } from './presets';
+import { presets, type Preset, type RenderMode } from './presets';
 
 export interface PainterState extends Preset {
   activePresetIndex: number;
   uiVisible: boolean;
 
   applyPreset: (index: number) => void;
+  setRenderMode: (mode: RenderMode) => void;
   toggleUI: () => void;
   randomize: () => void;
 }
@@ -24,6 +25,8 @@ export const useStore = create<PainterState>((set) => ({
     if (!p) return;
     set({ ...presetToState(p), activePresetIndex: index });
   },
+
+  setRenderMode: (mode: RenderMode) => set({ renderMode: mode, activePresetIndex: -1 }),
 
   toggleUI: () => set((s) => ({ uiVisible: !s.uiVisible })),
 

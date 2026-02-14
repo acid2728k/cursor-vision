@@ -6,6 +6,14 @@ import {
   type Point,
   type StrokeGraphics,
 } from './strokeSystem';
+import {
+  createRibbonStroke,
+  updateRibbonStroke,
+  clearRibbonStroke,
+  commitRibbonToContainer,
+  type RibbonStroke,
+} from './ribbonMesh';
+import type { RenderMode } from '../presets';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -13,8 +21,10 @@ import {
 
 export interface RenderContext {
   app: PIXI.Application;
-  /** Two-layer active stroke (glow + body) — redrawn each frame while drawing. */
+  /** Neon circle-stamp active stroke. */
   activeStroke: StrokeGraphics;
+  /** 3D ribbon active stroke. */
+  activeRibbon: RibbonStroke;
   /** Container that holds committed stroke containers — children persist forever. */
   strokeLayer: PIXI.Container;
   /** Top-level container: bloom + chromatic aberration. */
@@ -99,19 +109,22 @@ export function createRenderer(container: HTMLElement): RenderContext {
   // --- committed strokes live here as Container children (never removed) ---
   const strokeLayer = new PIXI.Container();
 
-  // --- live drawing (displacement applied only here) ---
+  // --- live drawing: neon mode ---
   const activeStroke = createStrokeGraphics(PIXI.BLEND_MODES.ADD);
+
+  // --- live drawing: ribbon3d mode ---
+  const activeRibbon = createRibbonStroke();
 
   const fxContainer = new PIXI.Container();
   fxContainer.addChild(activeStroke.container);
+  fxContainer.addChild(activeRibbon.container);
 
   // --- scene graph ---
   const mainContainer = new PIXI.Container();
   mainContainer.addChild(strokeLayer);
   mainContainer.addChild(fxContainer);
 
-  // Fix bloom clipping: force filter area to cover the full screen so the
-  // glow is never clipped at stroke bounding-box edges.
+  // Fix bloom clipping: force filter area to cover the full screen
   mainContainer.filterArea = new PIXI.Rectangle(
     0, 0, app.screen.width, app.screen.height,
   );
@@ -129,6 +142,7 @@ export function createRenderer(container: HTMLElement): RenderContext {
   return {
     app,
     activeStroke,
+    activeRibbon,
     strokeLayer,
     mainContainer,
     fxContainer,
@@ -146,11 +160,9 @@ export function hexToNum(hex: string): number {
 }
 
 /**
- * Commit the current stroke: create a permanent StrokeGraphics container
- * inside strokeLayer. The container stays in the scene graph forever
- * (until Clear is pressed).
+ * Commit the current neon stroke into strokeLayer.
  */
-export function commitActiveStroke(
+export function commitNeonStroke(
   ctx: RenderContext,
   points: Point[],
   palette: string[],
@@ -163,13 +175,49 @@ export function commitActiveStroke(
     return;
   }
 
-  // Create a new two-layer StrokeGraphics that lives permanently in strokeLayer
   const committed = createStrokeGraphics();
   drawStroke(committed, points, palette, brushSize, hardness, gradientOffset);
   ctx.strokeLayer.addChild(committed.container);
-
-  // Clear the live drawing layers
   clearStrokeGraphics(ctx.activeStroke);
+}
+
+/**
+ * Commit the current ribbon stroke into strokeLayer.
+ */
+export function commitRibbonStroke(
+  ctx: RenderContext,
+  points: Point[],
+  palette: string[],
+  brushSize: number,
+  gradientOffset: number,
+): void {
+  if (points.length < 2) {
+    clearRibbonStroke(ctx.activeRibbon);
+    return;
+  }
+
+  const committed = commitRibbonToContainer(points, palette, brushSize, gradientOffset);
+  ctx.strokeLayer.addChild(committed);
+  clearRibbonStroke(ctx.activeRibbon);
+}
+
+/**
+ * Commit active stroke — dispatches to the correct mode.
+ */
+export function commitActiveStroke(
+  ctx: RenderContext,
+  renderMode: RenderMode,
+  points: Point[],
+  palette: string[],
+  brushSize: number,
+  hardness: number,
+  gradientOffset: number,
+): void {
+  if (renderMode === 'ribbon3d') {
+    commitRibbonStroke(ctx, points, palette, brushSize, gradientOffset);
+  } else {
+    commitNeonStroke(ctx, points, palette, brushSize, hardness, gradientOffset);
+  }
 }
 
 /** Remove all committed strokes */
@@ -182,7 +230,10 @@ export function handleResize(ctx: RenderContext): void {
   ctx.displacementSprite.width = ctx.app.screen.width;
   ctx.displacementSprite.height = ctx.app.screen.height;
 
-  // Keep filter area in sync so bloom is never clipped
+  mainContainerResize(ctx);
+}
+
+function mainContainerResize(ctx: RenderContext): void {
   ctx.mainContainer.filterArea = new PIXI.Rectangle(
     0, 0, ctx.app.screen.width, ctx.app.screen.height,
   );

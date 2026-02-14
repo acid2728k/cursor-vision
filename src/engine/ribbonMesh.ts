@@ -458,6 +458,16 @@ export function clearRibbonStroke(ribbon: RibbonStroke): void {
 }
 
 // ---------------------------------------------------------------------------
+// Committed ribbon data — kept alive so we can update palette / offset later
+// ---------------------------------------------------------------------------
+
+export interface CommittedRibbonData {
+  canvas: HTMLCanvasElement;
+  texture: PIXI.Texture;
+  shader: PIXI.Shader;
+}
+
+// ---------------------------------------------------------------------------
 // Commit — create a standalone mesh for strokeLayer
 // ---------------------------------------------------------------------------
 
@@ -466,11 +476,11 @@ export function commitRibbonToContainer(
   palette: string[],
   brushSize: number,
   gradientOffset: number,
-): PIXI.Container {
+): { container: PIXI.Container; data: CommittedRibbonData | null } {
   const container = new PIXI.Container();
-  if (points.length < 2) return container;
+  if (points.length < 2) return { container, data: null };
 
-  // Bake gradient texture for this committed stroke
+  // Gradient texture for this committed stroke
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 1;
@@ -499,5 +509,21 @@ export function commitRibbonToContainer(
   const mesh = new PIXI.Mesh(geometry, shader as any);
   container.addChild(mesh);
 
-  return container;
+  return { container, data: { canvas, texture, shader } };
+}
+
+// ---------------------------------------------------------------------------
+// Update all committed ribbons — call every frame or on palette change
+// ---------------------------------------------------------------------------
+
+export function updateCommittedRibbons(
+  ribbons: CommittedRibbonData[],
+  palette: string[],
+  gradientOffset: number,
+): void {
+  for (const r of ribbons) {
+    drawGradient(r.canvas, palette);
+    r.texture.baseTexture.update();
+    r.shader.uniforms.uGradientOffset = gradientOffset;
+  }
 }

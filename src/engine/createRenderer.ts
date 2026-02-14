@@ -11,7 +11,9 @@ import {
   updateRibbonStroke,
   clearRibbonStroke,
   commitRibbonToContainer,
+  updateCommittedRibbons,
   type RibbonStroke,
+  type CommittedRibbonData,
 } from './ribbonMesh';
 import type { RenderMode } from '../presets';
 
@@ -27,6 +29,8 @@ export interface RenderContext {
   activeRibbon: RibbonStroke;
   /** Container that holds committed stroke containers — children persist forever. */
   strokeLayer: PIXI.Container;
+  /** References to committed ribbon data so we can live-update palette/offset. */
+  committedRibbons: CommittedRibbonData[];
   /** Top-level container: bloom + chromatic aberration. */
   mainContainer: PIXI.Container;
   /** Sub-container for the live stroke — displacement applies only here. */
@@ -144,6 +148,7 @@ export function createRenderer(container: HTMLElement): RenderContext {
     activeStroke,
     activeRibbon,
     strokeLayer,
+    committedRibbons: [],
     mainContainer,
     fxContainer,
     displacementSprite,
@@ -196,8 +201,9 @@ export function commitRibbonStroke(
     return;
   }
 
-  const committed = commitRibbonToContainer(points, palette, brushSize, gradientOffset);
+  const { container: committed, data } = commitRibbonToContainer(points, palette, brushSize, gradientOffset);
   ctx.strokeLayer.addChild(committed);
+  if (data) ctx.committedRibbons.push(data);
   clearRibbonStroke(ctx.activeRibbon);
 }
 
@@ -223,6 +229,7 @@ export function commitActiveStroke(
 /** Remove all committed strokes */
 export function clearCanvas(ctx: RenderContext): void {
   ctx.strokeLayer.removeChildren().forEach((c) => c.destroy({ children: true }));
+  ctx.committedRibbons.length = 0;
 }
 
 /** Handle window resize */

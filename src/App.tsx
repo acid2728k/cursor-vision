@@ -25,6 +25,7 @@ import {
 import {
   updateRibbonStroke,
   clearRibbonStroke,
+  updateCommittedRibbons,
 } from './engine/ribbonMesh';
 
 import {
@@ -166,6 +167,12 @@ export default function App() {
             gradientOffset,
           );
         }
+      }
+
+      // Live-update committed ribbons (palette + animated gradient offset)
+      if (ctx.committedRibbons.length > 0) {
+        const commitOffset = timeRef.current * state.gradientSpeed;
+        updateCommittedRibbons(ctx.committedRibbons, state.palette, commitOffset);
       }
 
       // Animate displacement

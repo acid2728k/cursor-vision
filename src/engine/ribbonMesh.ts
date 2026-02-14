@@ -199,81 +199,52 @@ function buildRibbonGeometry(
   }
   let vi = n * 2;
 
-  // Indices of the strip's first and last left/right vertices
-  const firstLeft = stripBase;           // v=0
-  const firstRight = stripBase + 1;      // v=1
-  const lastLeft = stripBase + (n - 1) * 2;
-  const lastRight = stripBase + (n - 1) * 2 + 1;
-
-  // ---- Start cap (semicircle fan, connected to strip) ----
-  // Arc from left (v=0) around the back to right (v=1).
-  // First and last arc vertices reuse the strip vertices for seamless join.
+  // ---- Start cap (semicircle fan, own vertices with v=0.5 for full opacity) ----
+  // The shader fades edges to transparent at v→0 and v→1 (smoothstep).
+  // Cap vertices use v=0.5 so the entire hemisphere stays fully opaque.
   const capCenter0 = vi;
   pos.push(points[0].x, points[0].y);
   uv.push(0, 0.5);
   ta.push(tang[0].angle);
   vi++;
 
-  // First triangle: center, firstLeft, first arc interior vertex
-  // Last triangle: center, last arc interior vertex, firstRight
-  // Interior arc vertices: s = 1 .. capSegments-1
   const startArcBase = vi;
-  for (let s = 1; s < capSegments; s++) {
+  for (let s = 0; s <= capSegments; s++) {
     const frac = s / capSegments;
     const a = tang[0].angle + Math.PI / 2 + Math.PI * frac;
     pos.push(
       points[0].x + Math.cos(a) * halfWidth,
       points[0].y + Math.sin(a) * halfWidth,
     );
-    uv.push(0, 1 - frac);
+    uv.push(0, 0.5); // all opaque
     ta.push(tang[0].angle);
     vi++;
-  }
-  // Triangles for start cap
-  const startArcCount = capSegments - 1; // interior vertices
-  // First fan triangle: center → firstLeft → first interior
-  if (startArcCount > 0) {
-    idx.push(capCenter0, firstLeft, startArcBase);
-    // Middle fan triangles
-    for (let s = 0; s < startArcCount - 1; s++) {
-      idx.push(capCenter0, startArcBase + s, startArcBase + s + 1);
+    if (s > 0) {
+      idx.push(capCenter0, startArcBase + s - 1, startArcBase + s);
     }
-    // Last fan triangle: center → last interior → firstRight
-    idx.push(capCenter0, startArcBase + startArcCount - 1, firstRight);
-  } else {
-    // capSegments=1: just one triangle connecting left→center→right
-    idx.push(capCenter0, firstLeft, firstRight);
   }
 
-  // ---- End cap (semicircle fan, connected to strip) ----
+  // ---- End cap (semicircle fan, own vertices with v=0.5) ----
   const capCenterN = vi;
   pos.push(points[n - 1].x, points[n - 1].y);
   uv.push(1, 0.5);
   ta.push(tang[n - 1].angle);
   vi++;
 
-  // Arc from right (v=1) around the front to left (v=0)
   const endArcBase = vi;
-  for (let s = 1; s < capSegments; s++) {
+  for (let s = 0; s <= capSegments; s++) {
     const frac = s / capSegments;
     const a = tang[n - 1].angle - Math.PI / 2 + Math.PI * frac;
     pos.push(
       points[n - 1].x + Math.cos(a) * halfWidth,
       points[n - 1].y + Math.sin(a) * halfWidth,
     );
-    uv.push(1, frac);
+    uv.push(1, 0.5); // all opaque
     ta.push(tang[n - 1].angle);
     vi++;
-  }
-  const endArcCount = capSegments - 1;
-  if (endArcCount > 0) {
-    idx.push(capCenterN, lastRight, endArcBase);
-    for (let s = 0; s < endArcCount - 1; s++) {
-      idx.push(capCenterN, endArcBase + s, endArcBase + s + 1);
+    if (s > 0) {
+      idx.push(capCenterN, endArcBase + s - 1, endArcBase + s);
     }
-    idx.push(capCenterN, endArcBase + endArcCount - 1, lastLeft);
-  } else {
-    idx.push(capCenterN, lastRight, lastLeft);
   }
 
   return {

@@ -41,9 +41,6 @@ uniform float uAmbient;       // 0.2 – 0.45
 uniform float uSpecPower;     // 16 – 64
 uniform float uSpecIntensity; // 0.3 – 0.9
 
-// Edge
-uniform float uEdgeSoftness;  // 0.04 – 0.15
-
 void main() {
   float u = vUv.x;
   float v = vUv.y;
@@ -75,12 +72,13 @@ void main() {
   vec3 H = normalize(L + V);
   float spec = pow(max(dot(N, H), 0.0), uSpecPower);
 
-  // Soft anti-aliased edges
-  float edgeAlpha = smoothstep(0.0, uEdgeSoftness, v)
-                  * smoothstep(0.0, uEdgeSoftness, 1.0 - v);
+  // Rim darkening replaces transparency — the cylindrical normal already
+  // makes edges dark; add a pow() rim term for extra falloff so edges
+  // blend naturally into the dark background without any alpha tricks.
+  float rim = pow(z, 0.4);  // z=1 at center, z→0 at edges
 
-  vec3 color = baseColor * lighting + vec3(1.0) * spec * uSpecIntensity;
-  gl_FragColor = vec4(color, edgeAlpha);
+  vec3 color = baseColor * lighting * rim + vec3(1.0) * spec * uSpecIntensity;
+  gl_FragColor = vec4(color, 1.0);
 }
 `;
 
@@ -199,52 +197,78 @@ function buildRibbonGeometry(
   }
   let vi = n * 2;
 
-  // ---- Start cap (semicircle fan, own vertices with v=0.5 for full opacity) ----
-  // The shader fades edges to transparent at v→0 and v→1 (smoothstep).
-  // Cap vertices use v=0.5 so the entire hemisphere stays fully opaque.
+  // Strip edge vertex indices for cap stitching
+  const firstLeft = stripBase;                     // v=0
+  const firstRight = stripBase + 1;                // v=1
+  const lastLeft = stripBase + (n - 1) * 2;        // v=0
+  const lastRight = stripBase + (n - 1) * 2 + 1;   // v=1
+
+  // ---- Start cap (semicircle fan stitched to strip) ----
+  // Arc goes from left edge (v=0) → back → right edge (v=1).
+  // First and last arc vertices REUSE strip vertices for zero-gap seam.
+  // Alpha is always 1.0 now — 3D lighting handles edge darkening.
   const capCenter0 = vi;
   pos.push(points[0].x, points[0].y);
   uv.push(0, 0.5);
   ta.push(tang[0].angle);
   vi++;
 
+  // Interior arc vertices (s=1..capSegments-1) with proper v mapping
   const startArcBase = vi;
-  for (let s = 0; s <= capSegments; s++) {
+  const startArcCount = capSegments - 1;
+  for (let s = 1; s < capSegments; s++) {
     const frac = s / capSegments;
     const a = tang[0].angle + Math.PI / 2 + Math.PI * frac;
     pos.push(
       points[0].x + Math.cos(a) * halfWidth,
       points[0].y + Math.sin(a) * halfWidth,
     );
-    uv.push(0, 0.5); // all opaque
+    // v goes from 0 (left) through 0.5 (back) to 1 (right) for proper 3D shading
+    uv.push(0, 1 - frac);
     ta.push(tang[0].angle);
     vi++;
-    if (s > 0) {
-      idx.push(capCenter0, startArcBase + s - 1, startArcBase + s);
+  }
+  // Fan triangles: firstLeft → interior arcs → firstRight
+  if (startArcCount > 0) {
+    idx.push(capCenter0, firstLeft, startArcBase);
+    for (let s = 0; s < startArcCount - 1; s++) {
+      idx.push(capCenter0, startArcBase + s, startArcBase + s + 1);
     }
+    idx.push(capCenter0, startArcBase + startArcCount - 1, firstRight);
+  } else {
+    idx.push(capCenter0, firstLeft, firstRight);
   }
 
-  // ---- End cap (semicircle fan, own vertices with v=0.5) ----
+  // ---- End cap (semicircle fan stitched to strip) ----
   const capCenterN = vi;
   pos.push(points[n - 1].x, points[n - 1].y);
   uv.push(1, 0.5);
   ta.push(tang[n - 1].angle);
   vi++;
 
+  // Interior arc vertices
   const endArcBase = vi;
-  for (let s = 0; s <= capSegments; s++) {
+  const endArcCount = capSegments - 1;
+  for (let s = 1; s < capSegments; s++) {
     const frac = s / capSegments;
     const a = tang[n - 1].angle - Math.PI / 2 + Math.PI * frac;
     pos.push(
       points[n - 1].x + Math.cos(a) * halfWidth,
       points[n - 1].y + Math.sin(a) * halfWidth,
     );
-    uv.push(1, 0.5); // all opaque
+    uv.push(1, frac);
     ta.push(tang[n - 1].angle);
     vi++;
-    if (s > 0) {
-      idx.push(capCenterN, endArcBase + s - 1, endArcBase + s);
+  }
+  // Fan triangles: lastRight → interior arcs → lastLeft
+  if (endArcCount > 0) {
+    idx.push(capCenterN, lastRight, endArcBase);
+    for (let s = 0; s < endArcCount - 1; s++) {
+      idx.push(capCenterN, endArcBase + s, endArcBase + s + 1);
     }
+    idx.push(capCenterN, endArcBase + endArcCount - 1, lastLeft);
+  } else {
+    idx.push(capCenterN, lastRight, lastLeft);
   }
 
   return {
@@ -280,7 +304,6 @@ export function createRibbonStroke(): RibbonStroke {
     uAmbient: 0.3,
     uSpecPower: 32.0,
     uSpecIntensity: 0.55,
-    uEdgeSoftness: 0.08,
   });
 
   // Placeholder geometry (will be replaced on first update)
@@ -291,7 +314,6 @@ export function createRibbonStroke(): RibbonStroke {
     .addIndex(Array.from(EMPTY_GEO.indices));
 
   const mesh = new PIXI.Mesh(geometry, shader as any);
-  mesh.state.blend = true;
   mesh.visible = false;
   container.addChild(mesh);
 
@@ -389,11 +411,9 @@ export function commitRibbonToContainer(
     uAmbient: 0.3,
     uSpecPower: 32.0,
     uSpecIntensity: 0.55,
-    uEdgeSoftness: 0.08,
   });
 
   const mesh = new PIXI.Mesh(geometry, shader as any);
-  mesh.state.blend = true;
   container.addChild(mesh);
 
   return container;

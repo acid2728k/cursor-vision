@@ -133,7 +133,7 @@ const EMPTY_GEO: GeoData = {
 function buildRibbonGeometry(
   points: Point[],
   halfWidth: number,
-  capSegments = 10,
+  capSegments = 24,
 ): GeoData {
   const n = points.length;
   if (n < 2) return EMPTY_GEO;
@@ -173,29 +173,8 @@ function buildRibbonGeometry(
   const ta: number[] = [];
   const idx: number[] = [];
 
-  // ---- Start cap (semicircle fan) ----
-  const capCenter0 = 0;
-  pos.push(points[0].x, points[0].y);
-  uv.push(0, 0.5);
-  ta.push(tang[0].angle);
-
-  for (let s = 0; s <= capSegments; s++) {
-    const a = tang[0].angle + Math.PI / 2 + (Math.PI * s) / capSegments;
-    pos.push(
-      points[0].x + Math.cos(a) * halfWidth,
-      points[0].y + Math.sin(a) * halfWidth,
-    );
-    uv.push(0, 1 - s / capSegments);
-    ta.push(tang[0].angle);
-    if (s > 0) {
-      idx.push(capCenter0, capCenter0 + s, capCenter0 + s + 1);
-    }
-  }
-
-  let vi = capSegments + 2;
-
-  // ---- Main ribbon strip ----
-  const stripBase = vi;
+  // ---- Main ribbon strip (built first so caps can reference its vertices) ----
+  const stripBase = 0;
   for (let i = 0; i < n; i++) {
     const nx = -tang[i].ty;
     const ny = tang[i].tx;
@@ -218,27 +197,83 @@ function buildRibbonGeometry(
       idx.push(p + 1, c + 1, c);
     }
   }
-  vi = stripBase + n * 2;
+  let vi = n * 2;
 
-  // ---- End cap (semicircle fan) ----
+  // Indices of the strip's first and last left/right vertices
+  const firstLeft = stripBase;           // v=0
+  const firstRight = stripBase + 1;      // v=1
+  const lastLeft = stripBase + (n - 1) * 2;
+  const lastRight = stripBase + (n - 1) * 2 + 1;
+
+  // ---- Start cap (semicircle fan, connected to strip) ----
+  // Arc from left (v=0) around the back to right (v=1).
+  // First and last arc vertices reuse the strip vertices for seamless join.
+  const capCenter0 = vi;
+  pos.push(points[0].x, points[0].y);
+  uv.push(0, 0.5);
+  ta.push(tang[0].angle);
+  vi++;
+
+  // First triangle: center, firstLeft, first arc interior vertex
+  // Last triangle: center, last arc interior vertex, firstRight
+  // Interior arc vertices: s = 1 .. capSegments-1
+  const startArcBase = vi;
+  for (let s = 1; s < capSegments; s++) {
+    const frac = s / capSegments;
+    const a = tang[0].angle + Math.PI / 2 + Math.PI * frac;
+    pos.push(
+      points[0].x + Math.cos(a) * halfWidth,
+      points[0].y + Math.sin(a) * halfWidth,
+    );
+    uv.push(0, 1 - frac);
+    ta.push(tang[0].angle);
+    vi++;
+  }
+  // Triangles for start cap
+  const startArcCount = capSegments - 1; // interior vertices
+  // First fan triangle: center → firstLeft → first interior
+  if (startArcCount > 0) {
+    idx.push(capCenter0, firstLeft, startArcBase);
+    // Middle fan triangles
+    for (let s = 0; s < startArcCount - 1; s++) {
+      idx.push(capCenter0, startArcBase + s, startArcBase + s + 1);
+    }
+    // Last fan triangle: center → last interior → firstRight
+    idx.push(capCenter0, startArcBase + startArcCount - 1, firstRight);
+  } else {
+    // capSegments=1: just one triangle connecting left→center→right
+    idx.push(capCenter0, firstLeft, firstRight);
+  }
+
+  // ---- End cap (semicircle fan, connected to strip) ----
   const capCenterN = vi;
   pos.push(points[n - 1].x, points[n - 1].y);
   uv.push(1, 0.5);
   ta.push(tang[n - 1].angle);
   vi++;
 
-  for (let s = 0; s <= capSegments; s++) {
-    const a = tang[n - 1].angle - Math.PI / 2 + (Math.PI * s) / capSegments;
+  // Arc from right (v=1) around the front to left (v=0)
+  const endArcBase = vi;
+  for (let s = 1; s < capSegments; s++) {
+    const frac = s / capSegments;
+    const a = tang[n - 1].angle - Math.PI / 2 + Math.PI * frac;
     pos.push(
       points[n - 1].x + Math.cos(a) * halfWidth,
       points[n - 1].y + Math.sin(a) * halfWidth,
     );
-    uv.push(1, s / capSegments);
+    uv.push(1, frac);
     ta.push(tang[n - 1].angle);
     vi++;
-    if (s > 0) {
-      idx.push(capCenterN, capCenterN + s, capCenterN + s + 1);
+  }
+  const endArcCount = capSegments - 1;
+  if (endArcCount > 0) {
+    idx.push(capCenterN, lastRight, endArcBase);
+    for (let s = 0; s < endArcCount - 1; s++) {
+      idx.push(capCenterN, endArcBase + s, endArcBase + s + 1);
     }
+    idx.push(capCenterN, endArcBase + endArcCount - 1, lastLeft);
+  } else {
+    idx.push(capCenterN, lastRight, lastLeft);
   }
 
   return {
